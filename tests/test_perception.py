@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 import pytest
 
-from repairmind_edge.models import EvidenceType
+from repairmind_edge.models import EvidenceType, LocalizationMethod
 from repairmind_edge.perception import PCBPerception, PerceptionError
 
 
@@ -37,6 +37,46 @@ def _synthetic_pcb() -> np.ndarray:
     cv2.rectangle(image, (570, 210), (690, 300), (180, 180, 180), -1)
 
     for x in range(250, 750, 80):
+        cv2.circle(image, (x, 500), 15, (200, 180, 60), -1)
+
+    return image
+
+
+def _synthetic_chamfered_pcb() -> np.ndarray:
+    """Create a synthetic PCB with chamfered corners."""
+
+    image = np.full((720, 960, 3), 25, dtype=np.uint8)
+
+    # Eight-point PCB outline: deliberately not a quadrilateral.
+    board = np.array(
+        [
+            [190, 120],
+            [770, 120],
+            [825, 175],
+            [825, 535],
+            [760, 610],
+            [200, 610],
+            [135, 535],
+            [135, 180],
+        ],
+        dtype=np.int32,
+    )
+
+    cv2.fillConvexPoly(image, board, (45, 125, 70))
+
+    cv2.polylines(
+        image,
+        [board.reshape((-1, 1, 2))],
+        True,
+        (235, 235, 235),
+        8,
+    )
+
+    # Synthetic components create realistic internal edges.
+    cv2.rectangle(image, (280, 245), (470, 390), (30, 30, 30), -1)
+    cv2.rectangle(image, (570, 205), (700, 305), (180, 180, 180), -1)
+
+    for x in range(240, 760, 80):
         cv2.circle(image, (x, 500), 15, (200, 180, 60), -1)
 
     return image
@@ -80,9 +120,7 @@ def test_localizes_synthetic_pcb() -> None:
     assert output.result.localization.area_ratio > 0.10
     assert output.result.localization.confidence >= 0.55
 
-    evidence_types = {
-        evidence.evidence_type for evidence in output.result.evidence
-    }
+    evidence_types = {evidence.evidence_type for evidence in output.result.evidence}
 
     assert EvidenceType.IMAGE_QUALITY in evidence_types
     assert EvidenceType.BOARD_LOCALIZED in evidence_types
@@ -111,10 +149,20 @@ def test_handles_missing_board_without_inventing_detection() -> None:
     assert output.result.localization.detected is False
     assert output.result.localization.corners is None
 
-    evidence_types = {
-        evidence.evidence_type for evidence in output.result.evidence
-    }
+    evidence_types = {evidence.evidence_type for evidence in output.result.evidence}
 
     assert EvidenceType.BOARD_LOCALIZATION_UNCERTAIN in evidence_types
 
     assert np.array_equal(output.normalized_image, blank)
+
+
+def test_localizes_chamfered_pcb() -> None:
+    """A non-quadrilateral PCB should still be localizable."""
+
+    perception = PCBPerception()
+    output = perception.inspect(_synthetic_chamfered_pcb())
+
+    assert output.result.localization.detected is True
+    assert output.result.localization.method == LocalizationMethod.DOMINANT_CONTOUR
+    assert output.result.localization.corners is not None
+    assert output.result.localization.area_ratio > 0.10

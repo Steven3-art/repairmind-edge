@@ -5,12 +5,17 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
+from typing import cast
 
 import cv2
 
-from repairmind_edge.perception import PCBPerception, PerceptionError
+from repairmind_edge.perception import (
+    ImageArray,
+    PCBPerception,
+    PerceptionError,
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -19,8 +24,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="repairmind",
         description=(
-            "Evidence-driven visual inspection and troubleshooting "
-            "for electronic and edge devices."
+            "Evidence-driven visual inspection and troubleshooting for electronic and edge devices."
         ),
     )
 
@@ -51,7 +55,7 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _write_image(path: Path, image: object) -> None:
+def _write_image(path: Path, image: ImageArray) -> None:
     """Write an OpenCV image and fail explicitly if writing fails."""
 
     success = cv2.imwrite(str(path), image)
@@ -86,6 +90,8 @@ def _inspect(image_path: Path, output_directory: Path) -> int:
         )
         return 2
 
+    image = cast(ImageArray, image.astype("uint8", copy=False))
+
     perception = PCBPerception()
 
     try:
@@ -105,6 +111,7 @@ def _inspect(image_path: Path, output_directory: Path) -> int:
 
         annotated_path = output_directory / "annotated.jpg"
         normalized_path = output_directory / "normalized.jpg"
+        debug_path = output_directory / "debug_contours.jpg"
         result_path = output_directory / "result.json"
 
         _write_image(
@@ -115,6 +122,11 @@ def _inspect(image_path: Path, output_directory: Path) -> int:
         _write_image(
             normalized_path,
             output.normalized_image,
+        )
+
+        _write_image(
+            debug_path,
+            output.debug_image,
         )
 
         result_path.write_text(
@@ -139,10 +151,7 @@ def _inspect(image_path: Path, output_directory: Path) -> int:
     print("RepairMind Edge inspection complete")
     print(f"Input:      {image_path}")
     print(f"Output:     {output_directory}")
-    print(
-        "Board:      "
-        + ("detected" if localization.detected else "uncertain")
-    )
+    print("Board:      " + ("detected" if localization.detected else "uncertain"))
     print(f"Confidence: {localization.confidence:.3f}")
     print(f"Area ratio: {localization.area_ratio:.3f}")
     print(f"Evidence:   {len(output.result.evidence)} item(s)")
@@ -150,6 +159,7 @@ def _inspect(image_path: Path, output_directory: Path) -> int:
     print(f"Result:     {result_path}")
     print(f"Annotated:  {annotated_path}")
     print(f"Normalized: {normalized_path}")
+    print(f"Debug:      {debug_path}")
 
     return 0
 

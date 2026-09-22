@@ -15,6 +15,13 @@ class EvidenceType(StrEnum):
     PERSPECTIVE_RECTIFIED = "PERSPECTIVE_RECTIFIED"
 
 
+class LocalizationMethod(StrEnum):
+    """Methods available for localizing a PCB."""
+
+    QUADRILATERAL = "quadrilateral"
+    DOMINANT_CONTOUR = "dominant_contour"
+
+
 class Point(BaseModel):
     """A two-dimensional image coordinate."""
 
@@ -42,6 +49,7 @@ class BoardLocalization(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     detected: bool
+    method: LocalizationMethod | None = None
     confidence: float = Field(ge=0.0, le=1.0)
     area_ratio: float = Field(ge=0.0, le=1.0)
     corners: tuple[Point, Point, Point, Point] | None = None
