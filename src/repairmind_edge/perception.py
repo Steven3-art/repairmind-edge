@@ -12,11 +12,13 @@ from numpy.typing import NDArray
 
 from repairmind_edge.models import (
     BoardLocalization,
+    BoundingBox,
     EvidenceType,
     ImageQuality,
     InspectionResult,
     LocalizationMethod,
     Point,
+    RegionOfInterest,
     VisualEvidence,
 )
 
@@ -78,6 +80,20 @@ class PCBPerception:
     _BOUNDARY_FUSION_DISTANCE_RATIO = 0.03
     _BOUNDARY_FUSION_MAX_EXCURSION_RATIO = 0.08
     _BOUNDARY_FUSION_MAX_PATH_LENGTH_RATIO = 0.25
+    # ROI proposals are derived from local visual activity rather than
+    # globally connected edges. This prevents dense PCB traces from merging
+    # the entire board into a single inspection region.
+    _ROI_WINDOW_SCALE_RATIOS = (0.14, 0.20, 0.28)
+    _ROI_WINDOW_ASPECT_RATIOS = (1.0, 1.5)
+    _ROI_WINDOW_STRIDE_RATIO = 0.50
+    _ROI_MIN_AREA_RATIO = 0.002
+    _ROI_MAX_AREA_RATIO = 0.20
+    _ROI_SORT_ROW_TOLERANCE_RATIO = 0.05
+    _ROI_EDGE_REFERENCE_DENSITY = 0.20
+    _ROI_CONTRAST_REFERENCE = 64.0
+    _ROI_NMS_IOU_THRESHOLD = 0.30
+    _ROI_MAX_PROPOSALS = 12
+    _ROI_MIN_CENTER_DISTANCE_RATIO = 0.12
 
     def __init__(
         self,
@@ -93,6 +109,348 @@ class PCBPerception:
 
         self._minimum_board_area_ratio = minimum_board_area_ratio
         self._minimum_confidence = minimum_confidence
+
+    @staticmethod
+    def _bounding_box_iou(
+        first: BoundingBox,
+        second: BoundingBox,
+    ) -> float:
+        """Return the intersection-over-union of two bounding boxes."""
+
+        first_right = first.x + first.width
+        first_bottom = first.y + first.height
+        second_right = second.x + second.width
+        second_bottom = second.y + second.height
+
+        intersection_left = max(first.x, second.x)
+        intersection_top = max(first.y, second.y)
+        intersection_right = min(first_right, second_right)
+        intersection_bottom = min(first_bottom, second_bottom)
+
+        intersection_width = max(
+            0,
+            intersection_right - intersection_left,
+        )
+        intersection_height = max(
+            0,
+            intersection_bottom - intersection_top,
+        )
+
+        intersection_area = float(intersection_width * intersection_height)
+
+        if intersection_area <= 0.0:
+            return 0.0
+
+        first_area = float(first.width * first.height)
+        second_area = float(second.width * second.height)
+
+        union_area = first_area + second_area - intersection_area
+
+        if union_area <= 0.0:
+            return 0.0
+
+        return intersection_area / union_area
+
+    @classmethod
+    def _extract_regions(
+        cls,
+        image: ImageArray,
+    ) -> tuple[RegionOfInterest, ...]:
+        """Propose deterministic ROIs using multi-scale visual activity."""
+
+        validated = cls._validate_image(image)
+        height, width = validated.shape[:2]
+        image_area = float(height * width)
+
+        grayscale = cv2.cvtColor(
+            validated,
+            cv2.COLOR_BGR2GRAY,
+        )
+
+        clahe = cv2.createCLAHE(
+            clipLimit=2.0,
+            tileGridSize=(8, 8),
+        )
+        enhanced = clahe.apply(grayscale)
+
+        edges = cv2.Canny(
+            enhanced,
+            50,
+            150,
+        )
+
+        minimum_dimension = min(height, width)
+
+        candidates: list[
+            tuple[
+                float,
+                BoundingBox,
+                float,
+                float,
+                float,
+            ]
+        ] = []
+
+        for scale_ratio in cls._ROI_WINDOW_SCALE_RATIOS:
+            base_size = max(
+                8,
+                round(minimum_dimension * scale_ratio),
+            )
+
+            for aspect_ratio in cls._ROI_WINDOW_ASPECT_RATIOS:
+                window_width = min(
+                    width,
+                    max(
+                        8,
+                        round(base_size * aspect_ratio),
+                    ),
+                )
+                window_height = min(
+                    height,
+                    base_size,
+                )
+
+                bounding_area = float(window_width * window_height)
+                area_ratio = bounding_area / image_area
+
+                if not (cls._ROI_MIN_AREA_RATIO <= area_ratio <= cls._ROI_MAX_AREA_RATIO):
+                    continue
+
+                stride_x = max(
+                    1,
+                    round(window_width * cls._ROI_WINDOW_STRIDE_RATIO),
+                )
+                stride_y = max(
+                    1,
+                    round(window_height * cls._ROI_WINDOW_STRIDE_RATIO),
+                )
+
+                x_positions = list(
+                    range(
+                        0,
+                        max(1, width - window_width + 1),
+                        stride_x,
+                    )
+                )
+                y_positions = list(
+                    range(
+                        0,
+                        max(1, height - window_height + 1),
+                        stride_y,
+                    )
+                )
+
+                final_x = width - window_width
+                final_y = height - window_height
+
+                if final_x not in x_positions:
+                    x_positions.append(final_x)
+
+                if final_y not in y_positions:
+                    y_positions.append(final_y)
+
+                for y in y_positions:
+                    for x in x_positions:
+                        region_edges = edges[
+                            y : y + window_height,
+                            x : x + window_width,
+                        ]
+                        region_gray = grayscale[
+                            y : y + window_height,
+                            x : x + window_width,
+                        ]
+
+                        edge_density = float(np.count_nonzero(region_edges) / bounding_area)
+
+                        local_contrast = float(np.std(region_gray.astype(np.float32)))
+
+                        normalized_edge_density = min(
+                            edge_density / cls._ROI_EDGE_REFERENCE_DENSITY,
+                            1.0,
+                        )
+                        normalized_contrast = min(
+                            local_contrast / cls._ROI_CONTRAST_REFERENCE,
+                            1.0,
+                        )
+
+                        confidence = float(
+                            np.clip(
+                                0.55 * normalized_edge_density + 0.45 * normalized_contrast,
+                                0.0,
+                                1.0,
+                            )
+                        )
+
+                        candidates.append(
+                            (
+                                confidence,
+                                BoundingBox(
+                                    x=x,
+                                    y=y,
+                                    width=window_width,
+                                    height=window_height,
+                                ),
+                                area_ratio,
+                                edge_density,
+                                local_contrast,
+                            )
+                        )
+
+        # Deterministic ranking. Spatial values are explicit tie-breakers
+        # so equal visual scores always produce the same proposal order.
+        candidates.sort(
+            key=lambda candidate: (
+                -candidate[0],
+                candidate[1].y,
+                candidate[1].x,
+                candidate[1].height,
+                candidate[1].width,
+            )
+        )
+
+        selected: list[
+            tuple[
+                float,
+                BoundingBox,
+                float,
+                float,
+                float,
+            ]
+        ] = []
+
+        minimum_center_distance = minimum_dimension * cls._ROI_MIN_CENTER_DISTANCE_RATIO
+
+        for candidate in candidates:
+            candidate_box = candidate[1]
+
+            candidate_center_x = candidate_box.x + candidate_box.width / 2.0
+            candidate_center_y = candidate_box.y + candidate_box.height / 2.0
+
+            reject_candidate = False
+
+            for selected_candidate in selected:
+                selected_box = selected_candidate[1]
+
+                if (
+                    cls._bounding_box_iou(
+                        candidate_box,
+                        selected_box,
+                    )
+                    > cls._ROI_NMS_IOU_THRESHOLD
+                ):
+                    reject_candidate = True
+                    break
+
+                selected_center_x = selected_box.x + selected_box.width / 2.0
+                selected_center_y = selected_box.y + selected_box.height / 2.0
+
+                center_distance = float(
+                    np.hypot(
+                        candidate_center_x - selected_center_x,
+                        candidate_center_y - selected_center_y,
+                    )
+                )
+
+                if center_distance < minimum_center_distance:
+                    reject_candidate = True
+                    break
+
+            if reject_candidate:
+                continue
+
+            selected.append(candidate)
+
+            if len(selected) >= cls._ROI_MAX_PROPOSALS:
+                break
+        row_tolerance = max(
+            1,
+            round(height * cls._ROI_SORT_ROW_TOLERANCE_RATIO),
+        )
+
+        selected.sort(
+            key=lambda candidate: (
+                candidate[1].y // row_tolerance,
+                candidate[1].x,
+                candidate[1].y,
+            )
+        )
+
+        regions: list[RegionOfInterest] = []
+
+        for index, candidate in enumerate(
+            selected,
+            start=1,
+        ):
+            (
+                confidence,
+                bounding_box,
+                area_ratio,
+                edge_density,
+                local_contrast,
+            ) = candidate
+
+            regions.append(
+                RegionOfInterest(
+                    roi_id=f"roi_{index:03d}",
+                    bounding_box=bounding_box,
+                    center=Point(
+                        x=(bounding_box.x + bounding_box.width / 2.0),
+                        y=(bounding_box.y + bounding_box.height / 2.0),
+                    ),
+                    area_ratio=area_ratio,
+                    edge_density=edge_density,
+                    local_contrast=local_contrast,
+                    confidence=confidence,
+                )
+            )
+
+        return tuple(regions)
+
+    @staticmethod
+    def _render_regions(
+        image: ImageArray,
+        regions: Sequence[RegionOfInterest],
+    ) -> ImageArray:
+        """Render proposed inspection regions on a copy of the image."""
+
+        overlay = image.copy()
+
+        for region in regions:
+            box = region.bounding_box
+
+            top_left = (box.x, box.y)
+            bottom_right = (
+                box.x + box.width,
+                box.y + box.height,
+            )
+
+            cv2.rectangle(
+                overlay,
+                top_left,
+                bottom_right,
+                (255, 0, 255),
+                2,
+            )
+
+            label = f"{region.roi_id} C={region.confidence:.2f}"
+
+            label_origin = (
+                box.x,
+                max(15, box.y - 6),
+            )
+
+            cv2.putText(
+                overlay,
+                label,
+                label_origin,
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.45,
+                (255, 0, 255),
+                1,
+                cv2.LINE_AA,
+            )
+
+        return overlay
 
     def inspect(self, image: ImageArray) -> PerceptionOutput:
         """Inspect an image and return structured visual evidence."""

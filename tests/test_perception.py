@@ -4,7 +4,11 @@ import cv2
 import numpy as np
 import pytest
 
-from repairmind_edge.models import EvidenceType, LocalizationMethod
+from repairmind_edge.models import (
+    EvidenceType,
+    LocalizationMethod,
+    RegionOfInterest,
+)
 from repairmind_edge.perception import PCBPerception, PerceptionError
 
 
@@ -1304,3 +1308,128 @@ def test_guided_boundary_fusion_rejects_degenerate_same_projection() -> None:
         )
         < 0.0
     )
+
+
+def test_roi_extraction_produces_deterministic_visual_regions() -> None:
+    """Meaningful board structures should receive stable ROI proposals."""
+
+    board = np.full(
+        (480, 640, 3),
+        (45, 125, 70),
+        dtype=np.uint8,
+    )
+
+    # Three deliberately distinct visual structures.
+    structures = (
+        (80, 70, 210, 180),
+        (380, 80, 530, 170),
+        (220, 300, 420, 390),
+    )
+
+    for x1, y1, x2, y2 in structures:
+        cv2.rectangle(
+            board,
+            (x1, y1),
+            (x2, y2),
+            (25, 25, 25),
+            -1,
+        )
+
+    # Give the second structure a different appearance while preserving
+    # the same geometric test contract.
+    cv2.rectangle(
+        board,
+        (380, 80),
+        (530, 170),
+        (190, 190, 190),
+        -1,
+    )
+
+    # Tiny isolated structures must not dominate useful proposals.
+    cv2.circle(
+        board,
+        (40, 430),
+        2,
+        (255, 255, 255),
+        -1,
+    )
+    cv2.circle(
+        board,
+        (600, 430),
+        2,
+        (255, 255, 255),
+        -1,
+    )
+
+    first_regions = PCBPerception._extract_regions(board)
+    second_regions = PCBPerception._extract_regions(board)
+
+    assert first_regions == second_regions
+
+    assert 3 <= len(first_regions) <= PCBPerception._ROI_MAX_PROPOSALS
+
+    assert [region.roi_id for region in first_regions] == [
+        f"roi_{index:03d}" for index in range(1, len(first_regions) + 1)
+    ]
+
+    for region in first_regions:
+        assert isinstance(region, RegionOfInterest)
+
+        box = region.bounding_box
+
+        assert box.width > 0
+        assert box.height > 0
+        assert box.x + box.width <= board.shape[1]
+        assert box.y + box.height <= board.shape[0]
+
+        assert 0.0 < region.area_ratio < 1.0
+        assert 0.0 < region.edge_density <= 1.0
+        assert region.local_contrast > 0.0
+        assert 0.0 <= region.confidence <= 1.0
+
+    def structure_is_covered(
+        structure: tuple[int, int, int, int],
+    ) -> bool:
+        x1, y1, x2, y2 = structure
+
+        structure_area = float((x2 - x1) * (y2 - y1))
+
+        for region in first_regions:
+            box = region.bounding_box
+
+            intersection_left = max(
+                x1,
+                box.x,
+            )
+            intersection_top = max(
+                y1,
+                box.y,
+            )
+            intersection_right = min(
+                x2,
+                box.x + box.width,
+            )
+            intersection_bottom = min(
+                y2,
+                box.y + box.height,
+            )
+
+            intersection_width = max(
+                0,
+                intersection_right - intersection_left,
+            )
+            intersection_height = max(
+                0,
+                intersection_bottom - intersection_top,
+            )
+
+            intersection_area = float(intersection_width * intersection_height)
+
+            coverage_ratio = intersection_area / structure_area
+
+            if coverage_ratio >= 0.05:
+                return True
+
+        return False
+
+    assert all(structure_is_covered(structure) for structure in structures)

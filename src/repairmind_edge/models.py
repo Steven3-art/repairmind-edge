@@ -31,6 +31,31 @@ class Point(BaseModel):
     y: float
 
 
+class BoundingBox(BaseModel):
+    """Axis-aligned rectangular region in image coordinates."""
+
+    model_config = ConfigDict(frozen=True)
+
+    x: int = Field(ge=0)
+    y: int = Field(ge=0)
+    width: int = Field(gt=0)
+    height: int = Field(gt=0)
+
+
+class RegionOfInterest(BaseModel):
+    """Deterministic visual region proposed for further inspection."""
+
+    model_config = ConfigDict(frozen=True)
+
+    roi_id: str = Field(min_length=1)
+    bounding_box: BoundingBox
+    center: Point
+    area_ratio: float = Field(gt=0.0, le=1.0)
+    edge_density: float = Field(ge=0.0, le=1.0)
+    local_contrast: float = Field(ge=0.0)
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
 class ImageQuality(BaseModel):
     """Objective measurements describing the input image."""
 
