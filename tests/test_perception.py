@@ -5,8 +5,10 @@ import numpy as np
 import pytest
 
 from repairmind_edge.models import (
+    BoundingBox,
     EvidenceType,
     LocalizationMethod,
+    Point,
     RegionOfInterest,
 )
 from repairmind_edge.perception import PCBPerception, PerceptionError
@@ -1433,3 +1435,121 @@ def test_roi_extraction_produces_deterministic_visual_regions() -> None:
         return False
 
     assert all(structure_is_covered(structure) for structure in structures)
+
+
+def test_region_evidence_preserves_roi_observations() -> None:
+    """ROI evidence should preserve measured visual observations."""
+
+    regions = (
+        RegionOfInterest(
+            roi_id="roi_001",
+            bounding_box=BoundingBox(
+                x=40,
+                y=60,
+                width=120,
+                height=80,
+            ),
+            center=Point(
+                x=100.0,
+                y=100.0,
+            ),
+            area_ratio=0.05,
+            edge_density=0.24,
+            local_contrast=48.5,
+            confidence=0.82,
+        ),
+        RegionOfInterest(
+            roi_id="roi_002",
+            bounding_box=BoundingBox(
+                x=220,
+                y=180,
+                width=90,
+                height=70,
+            ),
+            center=Point(
+                x=265.0,
+                y=215.0,
+            ),
+            area_ratio=0.032,
+            edge_density=0.31,
+            local_contrast=61.0,
+            confidence=0.91,
+        ),
+    )
+
+    first_evidence = PCBPerception._build_region_evidence(regions)
+    second_evidence = PCBPerception._build_region_evidence(regions)
+
+    assert first_evidence == second_evidence
+    assert len(first_evidence) == len(regions)
+
+    assert [item.evidence_id for item in first_evidence] == [
+        "evidence_roi_001",
+        "evidence_roi_002",
+    ]
+
+    for region, item in zip(
+        regions,
+        first_evidence,
+        strict=True,
+    ):
+        box = region.bounding_box
+
+        assert item.evidence_type == EvidenceType.VISUAL_REGION
+        assert item.source_roi_id == region.roi_id
+        assert item.confidence == region.confidence
+
+        assert item.description == (
+            "Visually active inspection region detected on the normalized PCB."
+        )
+
+        assert item.measurements == {
+            "x": box.x,
+            "y": box.y,
+            "width": box.width,
+            "height": box.height,
+            "center_x": region.center.x,
+            "center_y": region.center.y,
+            "area_ratio": region.area_ratio,
+            "edge_density": region.edge_density,
+            "local_contrast": region.local_contrast,
+            "proposal_score": region.confidence,
+        }
+
+
+def test_inspection_exposes_visual_region_evidence() -> None:
+    """Successful inspection should expose ROI evidence."""
+
+    perception = PCBPerception()
+
+    output = perception.inspect(_synthetic_pcb())
+
+    assert output.result.localization.detected
+
+    region_evidence = tuple(
+        item for item in output.result.evidence if item.evidence_type == EvidenceType.VISUAL_REGION
+    )
+
+    assert region_evidence
+
+    assert len(region_evidence) <= PCBPerception._ROI_MAX_PROPOSALS
+
+    assert [item.source_roi_id for item in region_evidence] == [
+        f"roi_{index:03d}"
+        for index in range(
+            1,
+            len(region_evidence) + 1,
+        )
+    ]
+
+    for item in region_evidence:
+        assert item.source_roi_id is not None
+        assert item.evidence_id == (f"evidence_{item.source_roi_id}")
+
+        assert "x" in item.measurements
+        assert "y" in item.measurements
+        assert "width" in item.measurements
+        assert "height" in item.measurements
+        assert "edge_density" in item.measurements
+        assert "local_contrast" in item.measurements
+        assert "proposal_score" in item.measurements

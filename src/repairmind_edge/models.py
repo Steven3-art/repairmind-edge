@@ -13,6 +13,7 @@ class EvidenceType(StrEnum):
     BOARD_LOCALIZED = "BOARD_LOCALIZED"
     BOARD_LOCALIZATION_UNCERTAIN = "BOARD_LOCALIZATION_UNCERTAIN"
     PERSPECTIVE_RECTIFIED = "PERSPECTIVE_RECTIFIED"
+    VISUAL_REGION = "VISUAL_REGION"
 
 
 class LocalizationMethod(StrEnum):
@@ -89,6 +90,7 @@ class VisualEvidence(BaseModel):
     evidence_type: EvidenceType
     confidence: float = Field(ge=0.0, le=1.0)
     description: str
+    source_roi_id: str | None = None
     measurements: dict[str, Any] = Field(default_factory=dict)
 
 

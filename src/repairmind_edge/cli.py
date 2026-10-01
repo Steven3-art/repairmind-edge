@@ -112,6 +112,7 @@ def _inspect(image_path: Path, output_directory: Path) -> int:
         annotated_path = output_directory / "annotated.jpg"
         normalized_path = output_directory / "normalized.jpg"
         debug_path = output_directory / "debug_contours.jpg"
+        roi_overlay_path = output_directory / "roi_overlay.jpg"
         result_path = output_directory / "result.json"
 
         _write_image(
@@ -127,6 +128,11 @@ def _inspect(image_path: Path, output_directory: Path) -> int:
         _write_image(
             debug_path,
             output.debug_image,
+        )
+
+        _write_image(
+            roi_overlay_path,
+            output.roi_overlay_image,
         )
 
         result_path.write_text(
@@ -160,6 +166,7 @@ def _inspect(image_path: Path, output_directory: Path) -> int:
     print(f"Annotated:  {annotated_path}")
     print(f"Normalized: {normalized_path}")
     print(f"Debug:      {debug_path}")
+    print(f"ROI Overlay: {roi_overlay_path}")
 
     return 0
 

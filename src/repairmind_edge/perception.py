@@ -37,6 +37,7 @@ class PerceptionOutput:
     normalized_image: ImageArray
     annotated_image: ImageArray
     debug_image: ImageArray
+    roi_overlay_image: ImageArray
 
 
 @dataclass(frozen=True)
@@ -407,6 +408,43 @@ class PCBPerception:
         return tuple(regions)
 
     @staticmethod
+    def _build_region_evidence(
+        regions: Sequence[RegionOfInterest],
+    ) -> tuple[VisualEvidence, ...]:
+        """Convert visual ROI proposals into structured evidence."""
+
+        evidence: list[VisualEvidence] = []
+
+        for region in regions:
+            box = region.bounding_box
+
+            evidence.append(
+                VisualEvidence(
+                    evidence_id=(f"evidence_{region.roi_id}"),
+                    evidence_type=EvidenceType.VISUAL_REGION,
+                    confidence=region.confidence,
+                    description=(
+                        "Visually active inspection region detected on the normalized PCB."
+                    ),
+                    source_roi_id=region.roi_id,
+                    measurements={
+                        "x": box.x,
+                        "y": box.y,
+                        "width": box.width,
+                        "height": box.height,
+                        "center_x": region.center.x,
+                        "center_y": region.center.y,
+                        "area_ratio": region.area_ratio,
+                        "edge_density": region.edge_density,
+                        "local_contrast": region.local_contrast,
+                        "proposal_score": region.confidence,
+                    },
+                )
+            )
+
+        return tuple(evidence)
+
+    @staticmethod
     def _render_regions(
         image: ImageArray,
         regions: Sequence[RegionOfInterest],
@@ -506,6 +544,7 @@ class PCBPerception:
 
             normalized = validated.copy()
             annotated = validated.copy()
+            roi_overlay = normalized.copy()
 
         else:
             ordered_corners = self._order_corners(candidate.corners)
@@ -561,6 +600,14 @@ class PCBPerception:
                 )
             )
 
+            regions = self._extract_regions(normalized)
+            region_evidence = self._build_region_evidence(regions)
+            evidence.extend(region_evidence)
+            roi_overlay = self._render_regions(
+                normalized,
+                regions,
+            )
+
             annotated = self._annotate_board(
                 validated,
                 candidate.source_contour,
@@ -579,6 +626,7 @@ class PCBPerception:
             normalized_image=normalized,
             annotated_image=annotated,
             debug_image=debug_image,
+            roi_overlay_image=roi_overlay,
         )
 
     @staticmethod
