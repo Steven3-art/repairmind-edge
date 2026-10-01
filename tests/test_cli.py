@@ -120,3 +120,85 @@ def test_reason_command_rejects_negative_iteration(
     assert exit_code == 2
     assert "iteration must be greater than or equal to zero" in captured.err
     assert not (tmp_path / "decision.json").exists()
+
+
+def test_measure_command_persists_measurement_and_second_decision(
+    tmp_path: Path,
+) -> None:
+    """Measure command should close the second inspection iteration."""
+
+    result_path = tmp_path / "result.json"
+    _write_inspection_result(result_path)
+
+    exit_code = main(
+        [
+            "measure",
+            str(result_path),
+            "--quantity",
+            "voltage",
+            "--value",
+            "4.927",
+            "--unit",
+            "V",
+            "--point",
+            "board_supply",
+        ]
+    )
+
+    assert exit_code == 0
+
+    measurement_path = tmp_path / "measurement.json"
+    decision_path = tmp_path / "decision_iteration_2.json"
+
+    assert measurement_path.is_file()
+    assert decision_path.is_file()
+
+    measurement_document = json.loads(measurement_path.read_text(encoding="utf-8"))
+
+    assert measurement_document["evidence_type"] == "ELECTRICAL_MEASUREMENT"
+    assert measurement_document["evidence_id"] == "measurement_001"
+    assert measurement_document["measurements"] == {
+        "quantity": "voltage",
+        "value": 4.927,
+        "unit": "V",
+        "measurement_point": "board_supply",
+    }
+
+    decision_document = json.loads(decision_path.read_text(encoding="utf-8"))
+
+    assert decision_document["iteration"] == 2
+    assert decision_document["action"]["action_type"] == "REQUEST_OBSERVATION"
+    assert decision_document["evidence_ids"] == ["measurement_001"]
+
+
+def test_measure_command_rejects_negative_iteration(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    """Measure command should reject invalid iteration numbers."""
+
+    result_path = tmp_path / "result.json"
+    _write_inspection_result(result_path)
+
+    exit_code = main(
+        [
+            "measure",
+            str(result_path),
+            "--quantity",
+            "voltage",
+            "--value",
+            "4.927",
+            "--unit",
+            "V",
+            "--point",
+            "board_supply",
+            "--iteration",
+            "-1",
+        ]
+    )
+
+    captured = capsys.readouterr()
+
+    assert exit_code == 2
+    assert "iteration must be greater than or equal to zero" in captured.err
+    assert not (tmp_path / "measurement.json").exists()

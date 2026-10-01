@@ -1,5 +1,7 @@
 """Tests for RepairMind Edge agentic inspection contracts."""
 
+from __future__ import annotations
+
 import pytest
 from pydantic import ValidationError
 
@@ -9,8 +11,13 @@ from repairmind_edge.agent import (
     InspectionAgent,
     InspectionDecision,
     InspectionState,
+    build_electrical_measurement_evidence,
 )
-from repairmind_edge.models import EvidenceType, VisualEvidence
+from repairmind_edge.models import (
+    ElectricalMeasurement,
+    EvidenceType,
+    VisualEvidence,
+)
 
 
 def _visual_region_evidence() -> VisualEvidence:
@@ -243,3 +250,146 @@ def test_agent_does_not_invent_finding_from_uninterpreted_measurement() -> None:
     assert decision.action.action_type == InspectionActionType.REQUEST_OBSERVATION
     assert decision.action.action_type != InspectionActionType.REPORT_FINDING
     assert decision.evidence_ids == ("measurement_supply_001",)
+
+
+def test_electrical_measurement_preserves_observed_value() -> None:
+    """Electrical measurements should preserve raw inspection observations."""
+
+    measurement = ElectricalMeasurement(
+        quantity="voltage",
+        value=4.927,
+        unit="V",
+        measurement_point="board_supply",
+    )
+
+    assert measurement.quantity == "voltage"
+    assert measurement.value == 4.927
+    assert measurement.unit == "V"
+    assert measurement.measurement_point == "board_supply"
+
+
+def test_electrical_measurement_is_immutable() -> None:
+    """Electrical measurements should not change after creation."""
+
+    measurement = ElectricalMeasurement(
+        quantity="voltage",
+        value=4.927,
+        unit="V",
+        measurement_point="board_supply",
+    )
+
+    with pytest.raises(ValidationError):
+        measurement.value = 5.0  # type: ignore[misc]
+
+
+def test_electrical_measurement_serializes_deterministically() -> None:
+    """Electrical measurements should expose stable structured data."""
+
+    measurement = ElectricalMeasurement(
+        quantity="voltage",
+        value=4.927,
+        unit="V",
+        measurement_point="board_supply",
+    )
+
+    assert measurement.model_dump(mode="json") == {
+        "quantity": "voltage",
+        "value": 4.927,
+        "unit": "V",
+        "measurement_point": "board_supply",
+    }
+
+
+def test_electrical_measurement_converts_to_structured_evidence() -> None:
+    """Observed measurements should become auditable electrical evidence."""
+
+    measurement = ElectricalMeasurement(
+        quantity="voltage",
+        value=4.927,
+        unit="V",
+        measurement_point="board_supply",
+    )
+
+    evidence = build_electrical_measurement_evidence(
+        measurement,
+        evidence_id="measurement_001",
+    )
+
+    assert evidence.evidence_id == "measurement_001"
+    assert evidence.evidence_type == EvidenceType.ELECTRICAL_MEASUREMENT
+    assert evidence.confidence == 1.0
+    assert evidence.source_roi_id is None
+    assert evidence.measurements == {
+        "quantity": "voltage",
+        "value": 4.927,
+        "unit": "V",
+        "measurement_point": "board_supply",
+    }
+
+
+def test_agent_requests_reference_for_uninterpreted_measurement() -> None:
+    """A measurement without a reference must not become a finding."""
+
+    measurement = ElectricalMeasurement(
+        quantity="voltage",
+        value=4.927,
+        unit="V",
+        measurement_point="board_supply",
+    )
+
+    electrical_evidence = build_electrical_measurement_evidence(
+        measurement,
+        evidence_id="measurement_001",
+    )
+
+    state = InspectionState(
+        evidence=(electrical_evidence,),
+        iteration=2,
+    )
+
+    decision = InspectionAgent().decide(state)
+
+    assert decision.iteration == 2
+    assert decision.action.action_type == InspectionActionType.REQUEST_OBSERVATION
+    assert decision.action.action_type != InspectionActionType.REPORT_FINDING
+    assert decision.evidence_ids == ("measurement_001",)
+    assert "expected" in decision.action.instruction.lower()
+
+
+def test_agent_iteration_two_uses_measurement_after_visual_evidence() -> None:
+    """The second iteration should consume the new electrical evidence."""
+
+    visual_evidence = VisualEvidence(
+        evidence_id="evidence_roi_001",
+        evidence_type=EvidenceType.VISUAL_REGION,
+        confidence=0.91,
+        description="Visually active inspection region detected.",
+        source_roi_id="roi_001",
+    )
+
+    measurement = ElectricalMeasurement(
+        quantity="voltage",
+        value=4.927,
+        unit="V",
+        measurement_point="board_supply",
+    )
+
+    electrical_evidence = build_electrical_measurement_evidence(
+        measurement,
+        evidence_id="measurement_001",
+    )
+
+    state = InspectionState(
+        evidence=(
+            visual_evidence,
+            electrical_evidence,
+        ),
+        iteration=2,
+    )
+
+    decision = InspectionAgent().decide(state)
+
+    assert decision.iteration == 2
+    assert decision.action.action_type == InspectionActionType.REQUEST_OBSERVATION
+    assert decision.action.action_type != InspectionActionType.REPORT_FINDING
+    assert decision.evidence_ids == ("measurement_001",)

@@ -82,6 +82,17 @@ class BoardLocalization(BaseModel):
     corners: tuple[Point, Point, Point, Point] | None = None
 
 
+class ElectricalMeasurement(BaseModel):
+    """Immutable electrical measurement collected during an inspection."""
+
+    model_config = ConfigDict(frozen=True)
+
+    quantity: str = Field(min_length=1)
+    value: float
+    unit: str = Field(min_length=1)
+    measurement_point: str = Field(min_length=1)
+
+
 class VisualEvidence(BaseModel):
     """Immutable evidence generated from a visual observation."""
 

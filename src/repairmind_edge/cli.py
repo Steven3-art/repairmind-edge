@@ -12,8 +12,12 @@ from typing import Any, cast
 import cv2
 from pydantic import ValidationError
 
-from repairmind_edge.agent import InspectionAgent, InspectionState
-from repairmind_edge.models import VisualEvidence
+from repairmind_edge.agent import (
+    InspectionAgent,
+    InspectionState,
+    build_electrical_measurement_evidence,
+)
+from repairmind_edge.models import ElectricalMeasurement, VisualEvidence
 from repairmind_edge.perception import (
     ImageArray,
     PCBPerception,
@@ -79,6 +83,61 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=1,
         help="Inspection iteration number.",
+    )
+
+    measure_parser = subparsers.add_parser(
+        "measure",
+        help=("Add an electrical measurement and evaluate the next inspection action."),
+    )
+
+    measure_parser.add_argument(
+        "result",
+        type=Path,
+        help="Path to an inspection result.json file.",
+    )
+
+    measure_parser.add_argument(
+        "--quantity",
+        required=True,
+        help="Measured electrical quantity, for example voltage.",
+    )
+
+    measure_parser.add_argument(
+        "--value",
+        required=True,
+        type=float,
+        help="Observed numeric measurement value.",
+    )
+
+    measure_parser.add_argument(
+        "--unit",
+        required=True,
+        help="Measurement unit, for example V.",
+    )
+
+    measure_parser.add_argument(
+        "--point",
+        required=True,
+        dest="measurement_point",
+        help="Logical measurement point, for example board_supply.",
+    )
+
+    measure_parser.add_argument(
+        "--iteration",
+        type=int,
+        default=2,
+        help="Inspection iteration number. Defaults to 2.",
+    )
+
+    measure_parser.add_argument(
+        "--output",
+        "-o",
+        type=Path,
+        default=None,
+        help=(
+            "Directory for measurement and decision artifacts. "
+            "Defaults to the inspection result directory."
+        ),
     )
 
     return parser
@@ -200,8 +259,10 @@ def _inspect(image_path: Path, output_directory: Path) -> int:
     return 0
 
 
-def _load_result_evidence(result_path: Path) -> tuple[VisualEvidence, ...]:
-    """Load and validate visual evidence from an inspection result."""
+def _load_result_evidence(
+    result_path: Path,
+) -> tuple[VisualEvidence, ...]:
+    """Load and validate evidence from an inspection result."""
 
     try:
         raw_document: Any = json.loads(result_path.read_text(encoding="utf-8"))
@@ -306,6 +367,115 @@ def _reason(
     return 0
 
 
+def _measure(
+    result_path: Path,
+    *,
+    quantity: str,
+    value: float,
+    unit: str,
+    measurement_point: str,
+    iteration: int,
+    output_directory: Path | None,
+) -> int:
+    """Add an electrical measurement and evaluate the next action."""
+
+    if not result_path.exists():
+        print(
+            f"Error: inspection result does not exist: {result_path}",
+            file=sys.stderr,
+        )
+        return 2
+
+    if not result_path.is_file():
+        print(
+            f"Error: inspection result path is not a file: {result_path}",
+            file=sys.stderr,
+        )
+        return 2
+
+    if iteration < 0:
+        print(
+            "Error: iteration must be greater than or equal to zero.",
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        existing_evidence = _load_result_evidence(result_path)
+
+        measurement = ElectricalMeasurement(
+            quantity=quantity,
+            value=value,
+            unit=unit,
+            measurement_point=measurement_point,
+        )
+    except (OSError, ValueError, ValidationError) as exc:
+        print(
+            f"Error: could not build measurement evidence: {exc}",
+            file=sys.stderr,
+        )
+        return 3
+
+    measurement_evidence = build_electrical_measurement_evidence(
+        measurement,
+        evidence_id="measurement_001",
+    )
+
+    state = InspectionState(
+        evidence=existing_evidence + (measurement_evidence,),
+        iteration=iteration,
+    )
+
+    decision = InspectionAgent().decide(state)
+
+    artifact_directory = output_directory if output_directory is not None else result_path.parent
+
+    measurement_path = artifact_directory / "measurement.json"
+    decision_path = artifact_directory / f"decision_iteration_{iteration}.json"
+
+    try:
+        artifact_directory.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        measurement_path.write_text(
+            measurement_evidence.model_dump_json(indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        decision_path.write_text(
+            decision.model_dump_json(indent=2) + "\n",
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        print(
+            f"Error: could not write measurement artifacts: {exc}",
+            file=sys.stderr,
+        )
+        return 4
+
+    print("RepairMind Edge measurement accepted")
+    print(f"Input:       {result_path}")
+    print(f"Quantity:    {measurement.quantity}")
+    print(f"Value:       {measurement.value:g} {measurement.unit}")
+    print(f"Point:       {measurement.measurement_point}")
+    print(f"Evidence:    {len(state.evidence)} item(s)")
+    print(f"Iteration:   {decision.iteration}")
+    print(f"Action:      {decision.action.action_type}")
+    print()
+    print("Reason:")
+    print(decision.action.reason)
+    print()
+    print("Next:")
+    print(decision.action.instruction)
+    print()
+    print(f"Measurement: {measurement_path}")
+    print(f"Decision:    {decision_path}")
+
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the RepairMind Edge CLI."""
 
@@ -323,6 +493,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             result_path=args.result,
             output_path=args.output,
             iteration=args.iteration,
+        )
+
+    if args.command == "measure":
+        return _measure(
+            result_path=args.result,
+            quantity=args.quantity,
+            value=args.value,
+            unit=args.unit,
+            measurement_point=args.measurement_point,
+            iteration=args.iteration,
+            output_directory=args.output,
         )
 
     parser.error(f"Unsupported command: {args.command}")

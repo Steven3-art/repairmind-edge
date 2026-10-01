@@ -4,7 +4,11 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from repairmind_edge.models import EvidenceType, VisualEvidence
+from repairmind_edge.models import (
+    ElectricalMeasurement,
+    EvidenceType,
+    VisualEvidence,
+)
 
 
 class InspectionActionType(StrEnum):
@@ -43,6 +47,22 @@ class InspectionDecision(BaseModel):
     iteration: int = Field(ge=0)
     action: InspectionAction
     evidence_ids: tuple[str, ...]
+
+
+def build_electrical_measurement_evidence(
+    measurement: ElectricalMeasurement,
+    *,
+    evidence_id: str,
+) -> VisualEvidence:
+    """Convert an observed electrical measurement into structured evidence."""
+
+    return VisualEvidence(
+        evidence_id=evidence_id,
+        evidence_type=EvidenceType.ELECTRICAL_MEASUREMENT,
+        confidence=1.0,
+        description=("Electrical measurement collected during the inspection."),
+        measurements=measurement.model_dump(mode="json"),
+    )
 
 
 class InspectionAgent:
@@ -117,8 +137,9 @@ class InspectionAgent:
                 action=InspectionAction(
                     action_type=InspectionActionType.REQUEST_MEASUREMENT,
                     reason=(
-                        "Visual inspection regions are available, but visual "
-                        "evidence alone cannot establish electrical behavior."
+                        "Visual inspection regions are available, but "
+                        "visual evidence alone cannot establish "
+                        "electrical behavior."
                     ),
                     instruction=(
                         "Measure the PCB supply voltage and provide the measured value in volts."
@@ -126,6 +147,24 @@ class InspectionAgent:
                     target_roi_id=target_region.source_roi_id,
                 ),
                 evidence_ids=tuple(item.evidence_id for item in region_evidence),
+            )
+
+        if electrical_evidence:
+            return InspectionDecision(
+                iteration=state.iteration,
+                action=InspectionAction(
+                    action_type=InspectionActionType.REQUEST_OBSERVATION,
+                    reason=(
+                        "An electrical measurement is available, but no "
+                        "expected reference value or tolerance is available "
+                        "to interpret it safely."
+                    ),
+                    instruction=(
+                        "Provide the expected supply voltage or reference "
+                        "specification for the measured point."
+                    ),
+                ),
+                evidence_ids=tuple(item.evidence_id for item in electrical_evidence),
             )
 
         return InspectionDecision(
