@@ -140,6 +140,53 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    demo_parser = subparsers.add_parser(
+        "demo",
+        help="Run the reproducible end-to-end RepairMind Edge demo.",
+    )
+
+    demo_parser.add_argument(
+        "image",
+        type=Path,
+        help="Path to the input PCB image.",
+    )
+
+    demo_parser.add_argument(
+        "--output",
+        "-o",
+        type=Path,
+        default=Path("artifacts") / "demo",
+        help="Directory where demo artifacts will be written.",
+    )
+
+    demo_parser.add_argument(
+        "--measurement-value",
+        type=float,
+        default=None,
+        help=(
+            "Optional observed electrical measurement. "
+            "When omitted, the demo stops after iteration 1."
+        ),
+    )
+
+    demo_parser.add_argument(
+        "--measurement-quantity",
+        default="voltage",
+        help="Electrical quantity associated with the measurement.",
+    )
+
+    demo_parser.add_argument(
+        "--measurement-unit",
+        default="V",
+        help="Unit associated with the measurement.",
+    )
+
+    demo_parser.add_argument(
+        "--measurement-point",
+        default="board_supply",
+        help="Logical point where the measurement was collected.",
+    )
+
     return parser
 
 
@@ -476,6 +523,78 @@ def _measure(
     return 0
 
 
+def _demo(
+    image_path: Path,
+    output_directory: Path,
+    *,
+    measurement_value: float | None,
+    measurement_quantity: str,
+    measurement_unit: str,
+    measurement_point: str,
+) -> int:
+    """Run the reproducible end-to-end inspection demo."""
+
+    print("RepairMind Edge end-to-end demo")
+    print("=" * 35)
+    print()
+
+    print("[1/3] OpenCV 5 perception")
+    inspect_exit_code = _inspect(
+        image_path=image_path,
+        output_directory=output_directory,
+    )
+
+    if inspect_exit_code != 0:
+        return inspect_exit_code
+
+    result_path = output_directory / "result.json"
+    decision_iteration_1_path = output_directory / "decision_iteration_1.json"
+
+    print()
+    print("[2/3] Agent reasoning — iteration 1")
+
+    reason_exit_code = _reason(
+        result_path=result_path,
+        output_path=decision_iteration_1_path,
+        iteration=1,
+    )
+
+    if reason_exit_code != 0:
+        return reason_exit_code
+
+    if measurement_value is None:
+        print()
+        print("Demo paused")
+        print("The agent requested additional evidence. No electrical measurement was supplied.")
+        print()
+        print("Re-run the demo with --measurement-value to continue the inspection loop.")
+
+        return 0
+
+    print()
+    print("[3/3] Electrical evidence — iteration 2")
+
+    measure_exit_code = _measure(
+        result_path=result_path,
+        quantity=measurement_quantity,
+        value=measurement_value,
+        unit=measurement_unit,
+        measurement_point=measurement_point,
+        iteration=2,
+        output_directory=output_directory,
+    )
+
+    if measure_exit_code != 0:
+        return measure_exit_code
+
+    print()
+    print("=" * 35)
+    print("RepairMind Edge demo complete")
+    print(f"Artifacts: {output_directory}")
+
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the RepairMind Edge CLI."""
 
@@ -504,6 +623,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             measurement_point=args.measurement_point,
             iteration=args.iteration,
             output_directory=args.output,
+        )
+
+    if args.command == "demo":
+        return _demo(
+            image_path=args.image,
+            output_directory=args.output,
+            measurement_value=args.measurement_value,
+            measurement_quantity=args.measurement_quantity,
+            measurement_unit=args.measurement_unit,
+            measurement_point=args.measurement_point,
         )
 
     parser.error(f"Unsupported command: {args.command}")

@@ -5,7 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import cv2
+import numpy as np
 from _pytest.capture import CaptureFixture
+from pytest import MonkeyPatch
 
 from repairmind_edge.cli import main
 from repairmind_edge.models import EvidenceType, VisualEvidence
@@ -202,3 +205,122 @@ def test_measure_command_rejects_negative_iteration(
     assert exit_code == 2
     assert "iteration must be greater than or equal to zero" in captured.err
     assert not (tmp_path / "measurement.json").exists()
+
+
+def test_demo_command_runs_complete_inspection_loop(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Demo should orchestrate both agent iterations deterministically."""
+
+    image_path = tmp_path / "board.jpg"
+    output_directory = tmp_path / "demo"
+
+    image_path.write_bytes(b"synthetic-test-input")
+
+    def fake_inspect(
+        image_path: Path,
+        output_directory: Path,
+    ) -> int:
+        """Persist deterministic perception evidence for CLI orchestration."""
+
+        assert image_path.is_file()
+
+        output_directory.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        _write_inspection_result(output_directory / "result.json")
+
+        return 0
+
+    monkeypatch.setattr(
+        "repairmind_edge.cli._inspect",
+        fake_inspect,
+    )
+
+    exit_code = main(
+        [
+            "demo",
+            str(image_path),
+            "--output",
+            str(output_directory),
+            "--measurement-value",
+            "4.927",
+            "--measurement-unit",
+            "V",
+            "--measurement-point",
+            "board_supply",
+        ]
+    )
+
+    assert exit_code == 0
+
+    result_path = output_directory / "result.json"
+    first_decision_path = output_directory / "decision_iteration_1.json"
+    measurement_path = output_directory / "measurement.json"
+    second_decision_path = output_directory / "decision_iteration_2.json"
+
+    assert result_path.is_file()
+    assert first_decision_path.is_file()
+    assert measurement_path.is_file()
+    assert second_decision_path.is_file()
+
+    first_decision = json.loads(first_decision_path.read_text(encoding="utf-8"))
+
+    assert first_decision["iteration"] == 1
+    assert first_decision["action"]["action_type"] == "REQUEST_MEASUREMENT"
+    assert first_decision["action"]["target_roi_id"] == "roi_001"
+    assert first_decision["evidence_ids"] == ["evidence_roi_001"]
+
+    measurement_document = json.loads(measurement_path.read_text(encoding="utf-8"))
+
+    assert measurement_document["evidence_type"] == "ELECTRICAL_MEASUREMENT"
+    assert measurement_document["evidence_id"] == "measurement_001"
+    assert measurement_document["measurements"] == {
+        "quantity": "voltage",
+        "value": 4.927,
+        "unit": "V",
+        "measurement_point": "board_supply",
+    }
+
+    second_decision = json.loads(second_decision_path.read_text(encoding="utf-8"))
+
+    assert second_decision["iteration"] == 2
+    assert second_decision["action"]["action_type"] == "REQUEST_OBSERVATION"
+    assert second_decision["evidence_ids"] == ["measurement_001"]
+
+
+def test_demo_command_can_stop_after_first_agent_iteration(
+    tmp_path: Path,
+) -> None:
+    """Demo should stop safely when no measurement is supplied."""
+
+    image_path = tmp_path / "board.jpg"
+    output_directory = tmp_path / "demo"
+
+    image = np.full(
+        (600, 800, 3),
+        128,
+        dtype=np.uint8,
+    )
+
+    assert cv2.imwrite(str(image_path), image)
+
+    exit_code = main(
+        [
+            "demo",
+            str(image_path),
+            "--output",
+            str(output_directory),
+        ]
+    )
+
+    assert exit_code == 0
+
+    assert (output_directory / "result.json").is_file()
+    assert (output_directory / "decision_iteration_1.json").is_file()
+
+    assert not (output_directory / "measurement.json").exists()
+    assert not (output_directory / "decision_iteration_2.json").exists()
