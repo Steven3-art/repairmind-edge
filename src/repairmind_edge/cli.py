@@ -14,15 +14,21 @@ from pydantic import ValidationError
 
 from repairmind_edge.agent import (
     InspectionAgent,
+    InspectionDecision,
     InspectionState,
     build_electrical_measurement_evidence,
 )
-from repairmind_edge.models import ElectricalMeasurement, VisualEvidence
+from repairmind_edge.models import (
+    ElectricalMeasurement,
+    InspectionResult,
+    VisualEvidence,
+)
 from repairmind_edge.perception import (
     ImageArray,
     PCBPerception,
     PerceptionError,
 )
+from repairmind_edge.reporting import build_inspection_report
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -523,6 +529,81 @@ def _measure(
     return 0
 
 
+def _load_json_model(
+    path: Path,
+    model_type: type[InspectionResult] | type[InspectionDecision] | type[VisualEvidence],
+) -> InspectionResult | InspectionDecision | VisualEvidence:
+    """Load and validate a persisted RepairMind Edge artifact."""
+
+    try:
+        raw_document: Any = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid JSON in artifact {path}: {exc}") from exc
+
+    try:
+        return model_type.model_validate(raw_document)
+    except ValidationError as exc:
+        raise ValueError(f"invalid artifact {path}: {exc}") from exc
+
+
+def _write_demo_report(
+    *,
+    result_path: Path,
+    iteration_1_path: Path,
+    output_directory: Path,
+    measurement: ElectricalMeasurement | None = None,
+    iteration_2_path: Path | None = None,
+) -> Path:
+    """Build and persist the consolidated demo inspection report."""
+
+    inspection_result = _load_json_model(
+        result_path,
+        InspectionResult,
+    )
+    iteration_1 = _load_json_model(
+        iteration_1_path,
+        InspectionDecision,
+    )
+
+    if not isinstance(inspection_result, InspectionResult):
+        raise TypeError("expected an InspectionResult artifact")
+
+    if not isinstance(iteration_1, InspectionDecision):
+        raise TypeError("expected an InspectionDecision artifact")
+
+    iteration_2: InspectionDecision | None = None
+
+    if iteration_2_path is not None:
+        loaded_iteration_2 = _load_json_model(
+            iteration_2_path,
+            InspectionDecision,
+        )
+
+        if not isinstance(
+            loaded_iteration_2,
+            InspectionDecision,
+        ):
+            raise TypeError("expected an InspectionDecision artifact")
+
+        iteration_2 = loaded_iteration_2
+
+    report = build_inspection_report(
+        inspection_result=inspection_result,
+        iteration_1=iteration_1,
+        measurement=measurement,
+        iteration_2=iteration_2,
+    )
+
+    report_path = output_directory / "inspection_report.json"
+
+    report_path.write_text(
+        report.model_dump_json(indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    return report_path
+
+
 def _demo(
     image_path: Path,
     output_directory: Path,
@@ -563,11 +644,26 @@ def _demo(
         return reason_exit_code
 
     if measurement_value is None:
+        try:
+            report_path = _write_demo_report(
+                result_path=result_path,
+                iteration_1_path=decision_iteration_1_path,
+                output_directory=output_directory,
+            )
+        except (OSError, ValueError, TypeError) as exc:
+            print(
+                f"Error: could not write inspection report: {exc}",
+                file=sys.stderr,
+            )
+            return 4
+
         print()
         print("Demo paused")
         print("The agent requested additional evidence. No electrical measurement was supplied.")
         print()
         print("Re-run the demo with --measurement-value to continue the inspection loop.")
+        print()
+        print(f"Report:      {report_path}")
 
         return 0
 
@@ -587,10 +683,35 @@ def _demo(
     if measure_exit_code != 0:
         return measure_exit_code
 
+    measurement = ElectricalMeasurement(
+        quantity=measurement_quantity,
+        value=measurement_value,
+        unit=measurement_unit,
+        measurement_point=measurement_point,
+    )
+
+    decision_iteration_2_path = output_directory / "decision_iteration_2.json"
+
+    try:
+        report_path = _write_demo_report(
+            result_path=result_path,
+            iteration_1_path=decision_iteration_1_path,
+            output_directory=output_directory,
+            measurement=measurement,
+            iteration_2_path=decision_iteration_2_path,
+        )
+    except (OSError, ValueError, TypeError) as exc:
+        print(
+            f"Error: could not write inspection report: {exc}",
+            file=sys.stderr,
+        )
+        return 4
+
     print()
     print("=" * 35)
     print("RepairMind Edge demo complete")
     print(f"Artifacts: {output_directory}")
+    print(f"Report:    {report_path}")
 
     return 0
 

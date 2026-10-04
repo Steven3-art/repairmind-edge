@@ -15,7 +15,7 @@ from repairmind_edge.models import EvidenceType, VisualEvidence
 
 
 def _write_inspection_result(path: Path) -> None:
-    """Write a minimal valid inspection result for CLI reasoning tests."""
+    """Write a valid deterministic inspection result for CLI tests."""
 
     evidence = (
         VisualEvidence(
@@ -36,7 +36,23 @@ def _write_inspection_result(path: Path) -> None:
         ),
     )
 
-    document = {"evidence": [item.model_dump(mode="json") for item in evidence]}
+    document = {
+        "quality": {
+            "width": 800,
+            "height": 600,
+            "channels": 3,
+            "brightness": 128.0,
+            "sharpness": 100.0,
+        },
+        "localization": {
+            "detected": True,
+            "confidence": 0.86,
+            "area_ratio": 0.747,
+        },
+        "evidence": [item.model_dump(mode="json") for item in evidence],
+        "normalized_width": 631,
+        "normalized_height": 778,
+    }
 
     path.write_text(
         json.dumps(document, indent=2) + "\n",
@@ -267,6 +283,29 @@ def test_demo_command_runs_complete_inspection_loop(
     assert measurement_path.is_file()
     assert second_decision_path.is_file()
 
+    report_path = output_directory / "inspection_report.json"
+
+    assert report_path.is_file()
+
+    report_document = json.loads(report_path.read_text(encoding="utf-8"))
+
+    assert report_document["report_version"] == "1.0"
+    assert report_document["inspection"]["board_detected"] is True
+    assert report_document["inspection"]["visual_region_count"] == 1
+
+    assert report_document["iteration_1"]["action"] == "REQUEST_MEASUREMENT"
+
+    assert report_document["measurement"] == {
+        "quantity": "voltage",
+        "value": 4.927,
+        "unit": "V",
+        "measurement_point": "board_supply",
+    }
+
+    assert report_document["iteration_2"]["action"] == "REQUEST_OBSERVATION"
+
+    assert report_document["status"] == "ADDITIONAL_EVIDENCE_REQUIRED"
+
     first_decision = json.loads(first_decision_path.read_text(encoding="utf-8"))
 
     assert first_decision["iteration"] == 1
@@ -324,3 +363,13 @@ def test_demo_command_can_stop_after_first_agent_iteration(
 
     assert not (output_directory / "measurement.json").exists()
     assert not (output_directory / "decision_iteration_2.json").exists()
+
+    report_path = output_directory / "inspection_report.json"
+
+    assert report_path.is_file()
+
+    report_document = json.loads(report_path.read_text(encoding="utf-8"))
+
+    assert report_document["measurement"] is None
+    assert report_document["iteration_2"] is None
+    assert report_document["status"] == "ADDITIONAL_EVIDENCE_REQUIRED"
