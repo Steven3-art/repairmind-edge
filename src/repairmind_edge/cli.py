@@ -18,6 +18,8 @@ from repairmind_edge.agent import (
     InspectionState,
     build_electrical_measurement_evidence,
 )
+from repairmind_edge.cloud import InMemoryCloudPublisher
+from repairmind_edge.cloud_session import build_cloud_session
 from repairmind_edge.models import (
     ElectricalMeasurement,
     InspectionResult,
@@ -191,6 +193,40 @@ def _build_parser() -> argparse.ArgumentParser:
         "--measurement-point",
         default="board_supply",
         help="Logical point where the measurement was collected.",
+    )
+
+    cloud_parser = subparsers.add_parser(
+        "cloud",
+        help="Manage cloud publication of RepairMind inspection sessions.",
+    )
+
+    cloud_subparsers = cloud_parser.add_subparsers(
+        dest="cloud_command",
+        required=True,
+    )
+
+    cloud_publish_parser = cloud_subparsers.add_parser(
+        "publish",
+        help="Publish a validated inspection session.",
+    )
+
+    cloud_publish_parser.add_argument(
+        "artifacts",
+        type=Path,
+        help="Directory containing the inspection report and generated artifacts.",
+    )
+
+    cloud_publish_parser.add_argument(
+        "--provider",
+        choices=("memory",),
+        default="memory",
+        help="Cloud publication provider. Currently defaults to memory.",
+    )
+
+    cloud_publish_parser.add_argument(
+        "--session-id",
+        default=None,
+        help="Optional explicit inspection session identifier.",
     )
 
     return parser
@@ -716,6 +752,65 @@ def _demo(
     return 0
 
 
+def _cloud_publish(
+    artifact_directory: Path,
+    *,
+    provider: str,
+    session_id: str | None,
+) -> int:
+    """Build and publish a validated RepairMind inspection session."""
+
+    try:
+        manifest, payloads = build_cloud_session(
+            artifact_directory,
+            session_id=session_id,
+        )
+    except (OSError, ValueError) as exc:
+        print(
+            f"Error: could not build cloud session: {exc}",
+            file=sys.stderr,
+        )
+        return 3
+
+    if provider != "memory":
+        print(
+            f"Error: unsupported cloud provider: {provider}",
+            file=sys.stderr,
+        )
+        return 2
+
+    publisher = InMemoryCloudPublisher()
+
+    try:
+        result = publisher.publish(
+            manifest,
+            payloads,
+        )
+    except ValueError as exc:
+        print(
+            f"Error: cloud publication failed: {exc}",
+            file=sys.stderr,
+        )
+        return 4
+
+    print("RepairMind Edge cloud publication complete")
+    print(f"Session:   {result.session_id}")
+    print(f"Provider:  {result.provider}")
+    print(f"Artifacts: {result.artifact_count}")
+    print(f"Manifest:  {result.manifest_uri}")
+    print()
+    print("Integrity:")
+
+    for artifact in manifest.artifacts:
+        print(
+            f"  {artifact.filename}: "
+            f"{artifact.size_bytes} bytes "
+            f"sha256={artifact.sha256}"
+        )
+
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the RepairMind Edge CLI."""
 
@@ -755,6 +850,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             measurement_unit=args.measurement_unit,
             measurement_point=args.measurement_point,
         )
+
+    if args.command == "cloud":
+        if args.cloud_command == "publish":
+            return _cloud_publish(
+                artifact_directory=args.artifacts,
+                provider=args.provider,
+                session_id=args.session_id,
+            )
+
+        parser.error(
+            f"Unsupported cloud command: {args.cloud_command}"
+        )
+        return 2
 
     parser.error(f"Unsupported command: {args.command}")
     return 2

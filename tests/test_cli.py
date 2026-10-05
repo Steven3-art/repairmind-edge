@@ -373,3 +373,115 @@ def test_demo_command_can_stop_after_first_agent_iteration(
     assert report_document["measurement"] is None
     assert report_document["iteration_2"] is None
     assert report_document["status"] == "ADDITIONAL_EVIDENCE_REQUIRED"
+
+def test_cloud_publish_uses_memory_provider(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    artifact_directory = tmp_path / "demo"
+    artifact_directory.mkdir()
+
+    report = {
+        "report_version": "1.0",
+        "inspection": {
+            "board_detected": True,
+            "localization_confidence": 0.863,
+            "visual_evidence_count": 15,
+            "visual_region_count": 12,
+        },
+        "iteration_1": {
+            "iteration": 1,
+            "action": "REQUEST_MEASUREMENT",
+            "reason": "Visual evidence requires an electrical measurement.",
+            "instruction": "Measure the PCB supply voltage.",
+            "target_roi_id": "roi_012",
+            "evidence_ids": ["evidence_roi_012"],
+        },
+        "measurement": {
+            "quantity": "voltage",
+            "value": 4.927,
+            "unit": "V",
+            "measurement_point": "board_supply",
+        },
+        "iteration_2": {
+            "iteration": 2,
+            "action": "REQUEST_OBSERVATION",
+            "reason": "Expected reference voltage is unavailable.",
+            "instruction": "Provide the expected supply voltage.",
+            "target_roi_id": None,
+            "evidence_ids": ["measurement_001"],
+        },
+        "status": "ADDITIONAL_EVIDENCE_REQUIRED",
+    }
+
+    (artifact_directory / "inspection_report.json").write_text(
+        json.dumps(report),
+        encoding="utf-8",
+    )
+    (artifact_directory / "annotated.jpg").write_bytes(b"annotated")
+    (artifact_directory / "debug_contours.jpg").write_bytes(b"debug")
+
+    exit_code = main(
+        [
+            "cloud",
+            "publish",
+            str(artifact_directory),
+            "--provider",
+            "memory",
+            "--session-id",
+            "inspection-cli-test",
+        ]
+    )
+
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert captured.err == ""
+    assert "RepairMind Edge cloud publication complete" in captured.out
+    assert "Session:   inspection-cli-test" in captured.out
+    assert "Provider:  memory" in captured.out
+    assert "Artifacts: 2" in captured.out
+    assert "inspection_report.json" in captured.out
+    assert "annotated.jpg" in captured.out
+    assert "debug_contours.jpg" not in captured.out
+
+
+def test_cloud_publish_rejects_missing_report(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    artifact_directory = tmp_path / "demo"
+    artifact_directory.mkdir()
+
+    exit_code = main(
+        [
+            "cloud",
+            "publish",
+            str(artifact_directory),
+        ]
+    )
+
+    captured = capsys.readouterr()
+
+    assert exit_code == 3
+    assert "could not build cloud session" in captured.err
+    assert "Inspection report not found" in captured.err
+
+
+def test_cloud_publish_rejects_missing_directory(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    exit_code = main(
+        [
+            "cloud",
+            "publish",
+            str(tmp_path / "missing"),
+        ]
+    )
+
+    captured = capsys.readouterr()
+
+    assert exit_code == 3
+    assert "could not build cloud session" in captured.err
+    assert "Artifact directory not found" in captured.err
