@@ -45,3 +45,4 @@ samples/*
 # Temporary files
 *.tmp
 *.log
+.aws-sam/

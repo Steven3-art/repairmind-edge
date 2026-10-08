@@ -1,0 +1,169 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  RepairMind Edge AWS backend for validated inspection-session ingestion
+  and secure artifact upload to private Amazon S3 storage.
+
+Parameters:
+  PresignedUrlTtlSeconds:
+    Type: Number
+    Default: 900
+    MinValue: 60
+    MaxValue: 3600
+    Description: Lifetime in seconds for presigned S3 artifact upload URLs.
+
+Resources:
+  RepairMindSessionBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "repairmind-sessions-${AWS::AccountId}-${AWS::Region}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+
+      VersioningConfiguration:
+        Status: Enabled
+
+      Tags:
+        - Key: Project
+          Value: RepairMind-Edge
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  RepairMindSessionApiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: repairmind-session-api-role
+
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+
+      Policies:
+        - PolicyName: repairmind-session-storage
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: SessionObjectAccess
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource:
+                  - !Sub "${RepairMindSessionBucket.Arn}/sessions/*"
+
+        - PolicyName: repairmind-session-logging
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: WriteLambdaLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub >
+                    arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:
+                    log-group:/aws/lambda/repairmind-session-api:*
+
+  RepairMindSessionApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: /aws/lambda/repairmind-session-api
+      RetentionInDays: 14
+
+  RepairMindHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: v1
+
+      Auth:
+        EnableIamAuthorizer: true
+
+      CorsConfiguration:
+        AllowMethods:
+          - POST
+        AllowHeaders:
+          - content-type
+        AllowOrigins:
+          - "*"
+        MaxAge: 300
+
+      Tags:
+        Project: RepairMind-Edge
+        ManagedBy: CloudFormation
+
+  RepairMindSessionApiFunction:
+    Type: AWS::Serverless::Function
+    DependsOn:
+      - RepairMindSessionApiLogGroup
+    Properties:
+      FunctionName: repairmind-session-api
+      Description: >
+        Validates RepairMind inspection-session manifests and issues
+        controlled presigned S3 artifact upload URLs.
+
+      CodeUri: src/session_api/
+      Handler: app.lambda_handler
+      Runtime: python3.12
+      Architectures:
+        - arm64
+
+      MemorySize: 256
+      Timeout: 10
+
+      Role: !GetAtt RepairMindSessionApiRole.Arn
+
+      Environment:
+        Variables:
+          SESSION_BUCKET_NAME: !Ref RepairMindSessionBucket
+          PRESIGNED_URL_TTL_SECONDS: !Ref PresignedUrlTtlSeconds
+
+      Events:
+        CreateSession:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref RepairMindHttpApi
+            Path: /sessions
+            Method: POST
+            Auth:
+              Authorizer: AWS_IAM
+
+      Tags:
+        Project: RepairMind-Edge
+        ManagedBy: CloudFormation
+
+Outputs:
+  RepairMindApiUrl:
+    Description: RepairMind inspection-session API endpoint.
+    Value: !Sub "https://${RepairMindHttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/v1"
+
+  RepairMindSessionBucketName:
+    Description: Private S3 bucket used for RepairMind inspection sessions.
+    Value: !Ref RepairMindSessionBucket
+
+  RepairMindSessionApiFunctionName:
+    Description: RepairMind session-ingestion Lambda function.
+    Value: !Ref RepairMindSessionApiFunction

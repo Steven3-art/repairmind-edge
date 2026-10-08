@@ -18,7 +18,11 @@ from repairmind_edge.agent import (
     InspectionState,
     build_electrical_measurement_evidence,
 )
-from repairmind_edge.cloud import InMemoryCloudPublisher
+from repairmind_edge.aws_publisher import (
+    AwsCloudPublisher,
+    AwsPublishError,
+)
+from repairmind_edge.cloud import CloudPublisher, InMemoryCloudPublisher
 from repairmind_edge.cloud_session import build_cloud_session
 from repairmind_edge.models import (
     ElectricalMeasurement,
@@ -218,15 +222,33 @@ def _build_parser() -> argparse.ArgumentParser:
 
     cloud_publish_parser.add_argument(
         "--provider",
-        choices=("memory",),
+        choices=("memory", "aws"),
         default="memory",
-        help="Cloud publication provider. Currently defaults to memory.",
+        help="Cloud publication provider.",
     )
 
     cloud_publish_parser.add_argument(
         "--session-id",
         default=None,
         help="Optional explicit inspection session identifier.",
+    )
+
+    cloud_publish_parser.add_argument(
+        "--api-url",
+        default=None,
+        help="RepairMind AWS API base URL. Required for provider aws.",
+    )
+
+    cloud_publish_parser.add_argument(
+        "--profile",
+        default=None,
+        help="Optional AWS CLI profile used for SigV4 authentication.",
+    )
+
+    cloud_publish_parser.add_argument(
+        "--region",
+        default="eu-north-1",
+        help="AWS region used for SigV4 authentication.",
     )
 
     return parser
@@ -757,6 +779,9 @@ def _cloud_publish(
     *,
     provider: str,
     session_id: str | None,
+    api_url: str | None,
+    profile: str | None,
+    region: str,
 ) -> int:
     """Build and publish a validated RepairMind inspection session."""
 
@@ -772,21 +797,43 @@ def _cloud_publish(
         )
         return 3
 
-    if provider != "memory":
+    publisher: CloudPublisher
+
+    if provider == "memory":
+        publisher = InMemoryCloudPublisher()
+    elif provider == "aws":
+        if api_url is None or not api_url.strip():
+            print(
+                "Error: --api-url is required when --provider aws is used.",
+                file=sys.stderr,
+            )
+            return 2
+
+        try:
+            publisher = AwsCloudPublisher(
+                api_url=api_url,
+                region_name=region,
+                profile_name=profile,
+            )
+        except ValueError as exc:
+            print(
+                f"Error: invalid AWS cloud configuration: {exc}",
+                file=sys.stderr,
+            )
+            return 2
+    else:
         print(
             f"Error: unsupported cloud provider: {provider}",
             file=sys.stderr,
         )
         return 2
 
-    publisher = InMemoryCloudPublisher()
-
     try:
         result = publisher.publish(
             manifest,
             payloads,
         )
-    except ValueError as exc:
+    except (ValueError, AwsPublishError) as exc:
         print(
             f"Error: cloud publication failed: {exc}",
             file=sys.stderr,
@@ -802,11 +849,7 @@ def _cloud_publish(
     print("Integrity:")
 
     for artifact in manifest.artifacts:
-        print(
-            f"  {artifact.filename}: "
-            f"{artifact.size_bytes} bytes "
-            f"sha256={artifact.sha256}"
-        )
+        print(f"  {artifact.filename}: {artifact.size_bytes} bytes sha256={artifact.sha256}")
 
     return 0
 
@@ -857,11 +900,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 artifact_directory=args.artifacts,
                 provider=args.provider,
                 session_id=args.session_id,
+                api_url=args.api_url,
+                profile=args.profile,
+                region=args.region,
             )
 
-        parser.error(
-            f"Unsupported cloud command: {args.cloud_command}"
-        )
+        parser.error(f"Unsupported cloud command: {args.cloud_command}")
         return 2
 
     parser.error(f"Unsupported command: {args.command}")

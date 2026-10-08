@@ -19,6 +19,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+aws = [
+    "boto3>=1.35,<2.0",
+]
 dev = [
     "mypy>=1.11",
     "pre-commit>=4.0",
