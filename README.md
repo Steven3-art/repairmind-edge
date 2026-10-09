@@ -1,4 +1,4 @@
-# RepairMind Edge
+﻿# RepairMind Edge
 
 **Agentic vision for evidence-driven inspection and troubleshooting of electronic and edge devices.**
 
@@ -31,17 +31,17 @@ RepairMind Edge models this workflow explicitly:
 
 ```text
 Observation
-    ↓
+    â†“
 OpenCV 5 perception
-    ↓
+    â†“
 Structured evidence
-    ↓
+    â†“
 Inspection decision
-    ↓
+    â†“
 Physical observation / measurement
-    ↓
+    â†“
 New evidence
-    ↓
+    â†“
 Next inspection decision
 ```
 
@@ -113,51 +113,51 @@ This behavior is intentional: insufficient evidence should produce a request for
 RepairMind Edge currently consists of four main layers:
 
 ```text
-┌───────────────────────────────────────┐
-│         Physical PCB / Image          │
-└──────────────────┬────────────────────┘
-                   │
-                   ▼
-┌───────────────────────────────────────┐
-│       OpenCV 5 Perception Layer       │
-│                                       │
-│  • image validation                   │
-│  • PCB localization                   │
-│  • contour / segmentation processing  │
-│  • geometric normalization            │
-│  • perspective processing             │
-│  • visual ROI proposal                │
-└──────────────────┬────────────────────┘
-                   │
-                   ▼
-┌───────────────────────────────────────┐
-│       Structured Evidence Layer       │
-│                                       │
-│  • image quality                      │
-│  • board localization                 │
-│  • perspective evidence               │
-│  • visual regions                     │
-│  • electrical measurements            │
-└──────────────────┬────────────────────┘
-                   │
-                   ▼
-┌───────────────────────────────────────┐
-│        Inspection Agent Layer         │
-│                                       │
-│  REQUEST_OBSERVATION                  │
-│  REQUEST_MEASUREMENT                  │
-│  REPORT_FINDING                       │
-└──────────────────┬────────────────────┘
-                   │
-                   ▼
-┌───────────────────────────────────────┐
-│       Auditable Reporting Layer       │
-│                                       │
-│  • decisions                          │
-│  • evidence IDs                       │
-│  • measurements                       │
-│  • inspection status                  │
-└───────────────────────────────────────┘
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚         Physical PCB / Image          â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                   â”‚
+                   â–¼
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚       OpenCV 5 Perception Layer       â”‚
+â”‚                                       â”‚
+â”‚  â€¢ image validation                   â”‚
+â”‚  â€¢ PCB localization                   â”‚
+â”‚  â€¢ contour / segmentation processing  â”‚
+â”‚  â€¢ geometric normalization            â”‚
+â”‚  â€¢ perspective processing             â”‚
+â”‚  â€¢ visual ROI proposal                â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                   â”‚
+                   â–¼
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚       Structured Evidence Layer       â”‚
+â”‚                                       â”‚
+â”‚  â€¢ image quality                      â”‚
+â”‚  â€¢ board localization                 â”‚
+â”‚  â€¢ perspective evidence               â”‚
+â”‚  â€¢ visual regions                     â”‚
+â”‚  â€¢ electrical measurements            â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                   â”‚
+                   â–¼
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚        Inspection Agent Layer         â”‚
+â”‚                                       â”‚
+â”‚  REQUEST_OBSERVATION                  â”‚
+â”‚  REQUEST_MEASUREMENT                  â”‚
+â”‚  REPORT_FINDING                       â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                   â”‚
+                   â–¼
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚       Auditable Reporting Layer       â”‚
+â”‚                                       â”‚
+â”‚  â€¢ decisions                          â”‚
+â”‚  â€¢ evidence IDs                       â”‚
+â”‚  â€¢ measurements                       â”‚
+â”‚  â€¢ inspection status                  â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 ```
 
 For a deeper technical description, see [`docs/architecture.md`](docs/architecture.md).
@@ -225,19 +225,19 @@ The current demonstration implements a real two-iteration loop:
 
 ```text
 PCB image
-    ↓
+    â†“
 15 perception evidence items
-    ↓
+    â†“
 Iteration 1
 REQUEST_MEASUREMENT
-    ↓
+    â†“
 4.927 V @ board_supply
-    ↓
+    â†“
 16 available evidence items
-    ↓
+    â†“
 Iteration 2
 REQUEST_OBSERVATION
-    ↓
+    â†“
 Expected reference specification required
 ```
 
@@ -254,7 +254,7 @@ Expected reference specification required
 Clone the repository and enter the project directory:
 
 ```bash
-git clone <REPOSITORY_URL>
+git clone https://github.com/Steven3-art/repairmind-edge.git
 cd repairmind-edge
 ```
 
@@ -313,11 +313,11 @@ The inspection produces structured and visual artifacts including:
 
 ```text
 artifacts/inspection/
-├── result.json
-├── annotated.jpg
-├── normalized.jpg
-├── debug_contours.jpg
-└── roi_overlay.jpg
+â”œâ”€â”€ result.json
+â”œâ”€â”€ annotated.jpg
+â”œâ”€â”€ normalized.jpg
+â”œâ”€â”€ debug_contours.jpg
+â””â”€â”€ roi_overlay.jpg
 ```
 
 ---
@@ -376,15 +376,15 @@ The complete demo generates:
 
 ```text
 artifacts/demo/
-├── result.json
-├── annotated.jpg
-├── normalized.jpg
-├── debug_contours.jpg
-├── roi_overlay.jpg
-├── decision_iteration_1.json
-├── measurement.json
-├── decision_iteration_2.json
-└── inspection_report.json
+â”œâ”€â”€ result.json
+â”œâ”€â”€ annotated.jpg
+â”œâ”€â”€ normalized.jpg
+â”œâ”€â”€ debug_contours.jpg
+â”œâ”€â”€ roi_overlay.jpg
+â”œâ”€â”€ decision_iteration_1.json
+â”œâ”€â”€ measurement.json
+â”œâ”€â”€ decision_iteration_2.json
+â””â”€â”€ inspection_report.json
 ```
 
 The final `inspection_report.json` consolidates the inspection state without introducing conclusions that are not supported by the collected evidence.
@@ -431,26 +431,26 @@ These numbers describe the current development checkpoint and may increase as th
 
 ```text
 repairmind-edge/
-├── README.md
-├── pyproject.toml
-├── docs/
-│   └── architecture.md
-├── samples/
-│   └── README.md
-├── src/
-│   └── repairmind_edge/
-│       ├── __init__.py
-│       ├── agent.py
-│       ├── cli.py
-│       ├── models.py
-│       ├── perception.py
-│       └── reporting.py
-└── tests/
-    ├── __init__.py
-    ├── test_agent.py
-    ├── test_cli.py
-    ├── test_perception.py
-    └── test_reporting.py
+â”œâ”€â”€ README.md
+â”œâ”€â”€ pyproject.toml
+â”œâ”€â”€ docs/
+â”‚   â””â”€â”€ architecture.md
+â”œâ”€â”€ samples/
+â”‚   â””â”€â”€ README.md
+â”œâ”€â”€ src/
+â”‚   â””â”€â”€ repairmind_edge/
+â”‚       â”œâ”€â”€ __init__.py
+â”‚       â”œâ”€â”€ agent.py
+â”‚       â”œâ”€â”€ cli.py
+â”‚       â”œâ”€â”€ models.py
+â”‚       â”œâ”€â”€ perception.py
+â”‚       â””â”€â”€ reporting.py
+â””â”€â”€ tests/
+    â”œâ”€â”€ __init__.py
+    â”œâ”€â”€ test_agent.py
+    â”œâ”€â”€ test_cli.py
+    â”œâ”€â”€ test_perception.py
+    â””â”€â”€ test_reporting.py
 ```
 
 Generated inspection artifacts and local experimental images are intentionally excluded from version control.
