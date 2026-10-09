@@ -10,7 +10,7 @@ Instead of attempting to diagnose a hardware fault from a single image, RepairMi
 
 The project is being developed for the **OpenCV AI Competition 2026, powered by AWS**.
 
-> **Current status:** the local OpenCV 5 inspection and agentic troubleshooting loop is implemented and validated. AWS integration is the next project milestone and is not yet part of the current release.
+> **Current status:** the OpenCV 5 inspection pipeline, evidence-driven troubleshooting loop, auditable reporting, and authenticated AWS inspection-session publishing workflow are implemented and validated.
 
 ---
 
@@ -282,7 +282,7 @@ Install RepairMind Edge with development dependencies:
 
 ```bash
 python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[aws,dev]"
 ```
 
 Verify the installation:
@@ -416,9 +416,11 @@ mypy src
 At the current milestone:
 
 ```text
-Automated tests: 52 passed
-Ruff:            passed
-mypy:            passed
+Core tests:        69 passed
+AWS backend tests: 23 passed
+Total:             92 passed
+Ruff:              passed
+mypy:              passed
 ```
 
 These numbers describe the current development checkpoint and may increase as the project evolves.
@@ -472,30 +474,47 @@ The current ROI-to-measurement relationship is also deterministic rather than a 
 These limitations are explicit design boundaries for the current milestone.
 
 ---
+## AWS integration
 
-## AWS roadmap
+RepairMind Edge includes a real AWS-backed inspection-session publishing workflow.
 
-AWS integration is the next functional milestone.
-
-The integration will be designed to provide meaningful cloud capabilities around the inspection lifecycle, such as inspection-session persistence, artifact storage, traceability, execution, or deployment.
-
-The goal is to preserve a clear architectural responsibility:
+The cloud boundary is deliberately separated from computer vision and inspection reasoning:
 
 ```text
-OpenCV 5
-    → visual perception and evidence extraction
-
-RepairMind inspection agent
-    → evidence-driven decision making
-
-AWS
-    → cloud inspection lifecycle and deployment capabilities
-```
-
-This section will be updated once the AWS integration is implemented and validated.
-
----
-
+OpenCV 5 perception
+        |
+        v
+Structured visual evidence
+        |
+        v
+Inspection agent
+        |
+        v
+inspection_report.json
+        |
+        v
+RepairMind AWS publisher
+        |
+        | AWS SigV4
+        v
+Amazon API Gateway HTTP API
+        |
+        | AWS_IAM authorization
+        v
+AWS Lambda
+        |
+        +-- validate the session manifest
+        +-- derive S3 object keys server-side
+        +-- persist the validated manifest
+        +-- generate presigned upload instructions
+        |
+        v
+Private Amazon S3
+        |
+        +-- inspection report
+        +-- annotated image
+        +-- normalized image
+        +-- ROI overlay
 ## Roadmap
 
 - [x] Real PCB perception pipeline
@@ -507,7 +526,7 @@ This section will be updated once the AWS integration is implemented and validat
 - [x] Multi-iteration inspection loop
 - [x] Auditable inspection report
 - [x] Reproducible CLI demo
-- [ ] AWS integration
+- [x] Authenticated AWS inspection-session publishing
 - [ ] Public demonstration assets
 - [ ] Hackathon deployment and submission hardening
 

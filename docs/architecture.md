@@ -582,9 +582,11 @@ The current project uses:
 At the current architecture checkpoint:
 
 ```text
-pytest: 52 passed
-Ruff:   passed
-mypy:   passed
+Core pytest:        69 passed
+AWS backend pytest: 23 passed
+Total:              92 passed
+Ruff:               passed
+mypy:               passed
 ```
 
 The test suite covers the perception pipeline, structured evidence, agent behavior, CLI orchestration, electrical measurement integration, and reporting.
@@ -619,72 +621,69 @@ It does not replace electrical safety procedures, measurement discipline, datash
 
 ## 14. AWS integration boundary
 
-AWS integration is not implemented at this architecture checkpoint.
+AWS integration is implemented as a separate cloud lifecycle boundary around the local inspection workflow.
 
-It is the next functional milestone.
-
-The intended responsibility boundary is:
+OpenCV 5 remains responsible for perception. RepairMind Core remains responsible for evidence, decisions, and reporting. AWS provides authenticated session ingestion, persistence, artifact storage, traceability, and deployment.
 
 ```text
-┌──────────────────────┐
-│      OpenCV 5        │
-│                      │
-│ Visual perception    │
-│ Evidence extraction  │
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│ RepairMind Core      │
-│                      │
-│ Evidence             │
-│ Decisions            │
-│ Reports              │
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│        AWS           │
-│                      │
-│ Cloud inspection     │
-│ lifecycle            │
-│ persistence          │
-│ traceability         │
-│ deployment           │
-└──────────────────────┘
-```
+Physical PCB
+     |
+     v
+OpenCV 5 perception
+     |
+     v
+Structured evidence
+     |
+     v
+Inspection agent
+     |
+     v
+Inspection report
+     |
+     v
+AwsCloudPublisher
+     |
+     | SigV4 HTTPS POST
+     v
+API Gateway HTTP API
+     |
+     | AWS_IAM
+     v
+Lambda session API
+     |
+     +-- validate manifest and session
+     +-- enforce artifact allowlist
+     +-- derive S3 object keys
+     +-- persist validated manifest
+     +-- generate presigned PUT URLs
+     |
+     v
+Private S3 session storage
 
-The exact AWS services will be documented only after they are implemented and validated.
-
-This prevents the architecture documentation from claiming cloud capabilities that the current software does not yet provide.
-
----
 
 ## 15. Planned evolution
 
 The next architecture milestones are:
 
 ```text
-Current
-  │
-  ├── OpenCV 5 perception             ✓
-  ├── structured evidence             ✓
-  ├── deterministic inspection agent  ✓
-  ├── electrical evidence             ✓
-  ├── multi-step inspection loop      ✓
-  ├── auditable reporting             ✓
-  │
-  ▼
-AWS integration
-  │
-  ▼
-inspection persistence / traceability
-  │
-  ▼
-deployment hardening
-  │
-  ▼
-hackathon demonstration
+Implemented
+  |
+  +-- OpenCV 5 perception                    [done]
+  +-- structured evidence                    [done]
+  +-- deterministic inspection agent         [done]
+  +-- electrical evidence                    [done]
+  +-- multi-step inspection loop             [done]
+  +-- auditable reporting                    [done]
+  +-- authenticated AWS session publishing   [done]
+  +-- private cloud artifact persistence      [done]
+  |
+  v
+Current hardening
+  |
+  +-- public repository documentation
+  +-- reproducible demonstration assets
+  +-- release validation
+  +-- hackathon submission
 ```
 
 Longer-term research directions include:
