@@ -582,11 +582,11 @@ The current project uses:
 At the current architecture checkpoint:
 
 ```text
-Core pytest:        69 passed
+Core pytest:        77 passed
 AWS backend pytest: 23 passed
-Total:              92 passed
-Ruff:               passed
-mypy:               passed
+Controlled total:   100 tests
+Ruff:                passed
+mypy:                passed
 ```
 
 The test suite covers the perception pipeline, structured evidence, agent behavior, CLI orchestration, electrical measurement integration, and reporting.

@@ -416,9 +416,9 @@ mypy src
 At the current milestone:
 
 ```text
-Core tests:        69 passed
+Core tests:        77 passed
 AWS backend tests: 23 passed
-Total:             92 passed
+Controlled total:  100 tests
 Ruff:              passed
 mypy:              passed
 ```
